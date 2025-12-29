@@ -115,7 +115,19 @@ exec(char *path, char **argv)
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
-
+  //exec把原来的进程替换为新的进程，会为新进程创建一张用户页表，所以要先解除原进程内核页表的映射
+  //将用户页表的新映射拷贝到内核页表上去
+  uvmunmap(p->kernelpt, 0, PGROUNDUP(oldsz)/PGSIZE, 0);
+  if (u2kvmcopy(p->pagetable, p->kernelpt, 0, p->sz) < 0)
+  {
+    goto bad;
+  }
+  
+  //打印页表信息
+  if (p->pid == 1)
+  {
+    vmprint(p->pagetable);
+  }
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:

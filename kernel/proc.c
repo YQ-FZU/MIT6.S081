@@ -39,7 +39,7 @@ procinit(void)
         panic("kalloc");
       uint64 va = KSTACK((int) (p - proc));
       kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      //p->kstack = va;
   }
   kvminithart();
 }
@@ -120,7 +120,21 @@ found:
     release(&p->lock);
     return 0;
   }
-
+  //创建一张进程的内核页表
+  p->kernelpt = proc_kvminit();
+  if(p->kernelpt== 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  //为进程创建内核栈
+  char *pa = kalloc();		
+  if(pa == 0)				
+    panic("kalloc");
+  uint64 va = KSTACK(0);  //每一个进程自己的内核页表只有一个内核栈
+  proc_kvmmap(p->kernelpt, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);	//这里可以看出有4KB的虚拟地址是保护页
+  p->kstack = va;		//将进程的内核栈地址写入pcb进程控制块中
+  
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -141,6 +155,15 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  //释放内核栈
+  if (p->kstack)
+    uvmunmap(p->kernelpt, p->kstack, 1, 1);
+  p->kstack = 0;
+  //删除页表
+  if(p->kernelpt)
+    proc_free_kernelpt(p->kernelpt);
+  p->kernelpt = 0;
+  
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -220,6 +243,8 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  //将页表拷贝一份到内核页表里去
+  u2kvmcopy(p->pagetable, p->kernelpt, 0, p->sz);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -243,11 +268,21 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    //判断用户空间虚拟地址不能超过PLIC
+    if (sz + n > PLIC)
+      return -1;
+    
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    //进程内核页表也要扩展,从原页表的边界开始
+    if (u2kvmcopy(p->pagetable, p->kernelpt, p->sz, n) < 0)
+    {
+      return -1;
+    }
   } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    uvmdealloc(p->pagetable, sz, sz + n);
+    sz = kvmdealloc(p->kernelpt, sz, sz + n);   //上面一个函数释放过物理内存，这里不能再释放了，就简单对kernelpt做一下页删除
   }
   p->sz = sz;
   return 0;
@@ -274,6 +309,12 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  //将子进程里面用户页表拷贝到内核页表里去
+  if(u2kvmcopy(np->pagetable, np->kernelpt, 0, np->sz) < 0){
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
 
   np->parent = p;
 
@@ -471,14 +512,20 @@ scheduler(void)
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
+
+        proc_inithart(p->kernelpt);   //进程运行时使用进程自己的内核页表
+       
         p->state = RUNNING;
         c->proc = p;
-        swtch(&c->context, &p->context);
-
+         // 上下文切换：从调度器切换到进程
+        swtch(&c->context, &p->context);  
+      
         // Process is done running for now.
         // It should have changed its p->state before coming back.
-        c->proc = 0;
+        //进程结束后，把内核的页表刷新回TLB
+        kvminithart();
 
+        c->proc = 0;
         found = 1;
       }
       release(&p->lock);
