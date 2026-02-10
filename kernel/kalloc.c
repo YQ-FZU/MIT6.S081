@@ -80,3 +80,18 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+//lab2 sysinfo 获取剩余内存大小
+uint64 get_free_memory(void)
+{
+  uint64 cnt = 0;
+  struct run* r = kmem.freelist;    //获取空闲页链表头结点
+  acquire(&kmem.lock);
+  while (r != 0)
+  {
+    cnt++;
+    r = r->next;
+  }
+  release(&kmem.lock);
+  return cnt * PGSIZE;
+}

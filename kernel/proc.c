@@ -276,6 +276,7 @@ fork(void)
   np->sz = p->sz;
 
   np->parent = p;
+  strncpy(np->mask, p->mask, sizeof(p->mask));      //lab2 将父进程的mask拷贝到子进程
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -692,4 +693,21 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+//lab2 sysinfo 获取当前系统的proc数量
+uint64 get_proc_num(void)
+{
+  uint64 cnt = 0;
+  struct proc* p = myproc();
+  for (p = proc; p < &proc[NPROC]; p++)   //遍历所有进程获取当前正在运行的进程数量
+  {
+    acquire(&p->lock);
+    if (p->state != UNUSED) 
+    {
+      cnt++;
+    }
+    release(&p->lock);
+  }
+  return cnt;
 }

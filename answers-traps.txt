@@ -1,0 +1,24 @@
+（1）、Which registers contain arguments to functions? For example, which register holds 13 in main's call to `printf`?
+
+answer：a0 ~ a7寄存器保存函数的参数；main中的printf中的第三个参数13保存在a2寄存器
+
+（2）、在 main 函数的汇编代码中，对函数 f 的调用在哪里？对 g 的调用又在哪里？（提示：编译器可能会内联函数。）
+
+answer：函数内联，由于函数f和g过于简单，编译器自动优化，将被调函数代码直接插入到调用者函数中，并没有执行函数调用
+
+（3）、函数 printf 位于哪个地址？
+
+answer：0x616
+
+（4）、在 main 函数中执行 jalr 到 printf 之后，寄存器 ra 中的值是什么？
+
+answer：是下一条指令的地址0x38
+
+（5）、在接下来的代码中，接下来会打印什么？（注：答案不是具体的值。）为什么会发生这种情况？`'y='`
+
+```
+printf("x=%d y=%d", 3);
+```
+
+由于第二个参数没有写入，printf默认从a2寄存器里面取值；printf的参数是从a1，a2，a3...里面取出的。a0存放的是字符串"x=%d y=%d"的地址
+
