@@ -503,7 +503,7 @@ pagetable_t proc_kvminit()
   proc_kvmmap(kernelpt, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
   // CLINT
-  //kvmmap(CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  //proc_kvmmap(kernelpt, CLINT, CLINT,0x10000, PTE_R | PTE_W);
 
   // PLIC
   proc_kvmmap(kernelpt, PLIC, PLIC, 0x400000, PTE_R | PTE_W);

@@ -127,6 +127,7 @@ found:
     release(&p->lock);
     return 0;
   }
+  p->trapframe->kernel_satp = MAKE_SATP(p->kernelpt);   //new
   //为进程创建内核栈
   char *pa = kalloc();		
   if(pa == 0)				
