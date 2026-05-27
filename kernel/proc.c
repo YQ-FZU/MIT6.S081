@@ -107,6 +107,16 @@ allocproc(void)
 found:
   p->pid = allocpid();
 
+  //lab4 初始化alarm参数
+  if((p->alarm_trapframe = (struct trapframe *)kalloc()) == 0){
+    release(&p->lock);
+    return 0;
+  }
+  p->alarm_inteval = 0;
+  p->cnt = 0;
+  p->handler = 0;
+  p->in_hanlder = 0;  //不在执行中断
+
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     release(&p->lock);
@@ -150,6 +160,15 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  //lab4
+  if(p->alarm_trapframe)          
+    kfree((void*)p->alarm_trapframe);
+  p->cnt = 0;
+  p->in_hanlder = 0;
+  p->alarm_inteval = 0;
+  p->handler = 0;
+  p->alarm_trapframe = 0;
 }
 
 // Create a user page table for a given process,

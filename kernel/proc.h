@@ -99,8 +99,14 @@ struct proc {
   uint64 sz;                   // Size of process memory (bytes)
   pagetable_t pagetable;       // User page table
   struct trapframe *trapframe; // data page for trampoline.S
+  struct trapframe *alarm_trapframe;   //<用于保存之前的陷阱帧>
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  uint64 handler;              //<定时器中断函数虚拟地址>
+  int cnt;                     //<时间滴答>
+  int alarm_inteval;           //<触发定时器中断时间间隔>
+  int in_hanlder;              //<标志位，标志是否处于中断函数中,避免重复出发>
 };

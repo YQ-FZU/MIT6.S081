@@ -70,6 +70,7 @@ sys_sleep(void)
     sleep(&ticks, &tickslock);
   }
   release(&tickslock);
+  backtrace();    //调用回溯
   return 0;
 }
 
@@ -94,4 +95,27 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+//lab4
+uint64 sys_sigalarm(void)
+{
+  if (argint(0, &myproc()->alarm_inteval) < 0)   //传入的第一个参数是触发定时器中断的时间间隔
+    return -1;
+  if (argaddr(1, &myproc()->handler) < 0)    
+    return -1;
+  return 0;
+}
+
+uint64 sys_sigreturn(void)
+{
+  //用户中断服务程序在结束的时候会调用sigreturn系统调用，这个时候ecall会把sigreturn的现场写道sepc
+  //进入trap之后，usertrap会把sepc+4写入陷阱帧用于userret的sret返回
+  //而我们需要返回到触发警报之前的现场，所以我们需要修改陷阱帧的sepc,alarm_trapframe存储的就是触发警报之前的现场
+  
+  struct proc *p = myproc();
+  memmove(p->trapframe, p->alarm_trapframe, sizeof(struct trapframe));
+  p->cnt = 0;
+  p->in_hanlder = 0;
+  return 0;
 }

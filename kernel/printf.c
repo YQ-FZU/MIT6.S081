@@ -132,3 +132,18 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+//回溯函数
+void backtrace(void)
+{
+  printf("backtrace:\n");
+  uint64 fp = r_fp();     //得到backtrace的帧指针
+  uint64 up = PGROUNDUP(fp);  
+  uint64 down = PGROUNDDOWN(fp);   
+  while (fp < up && fp > down)  //如果超出了内核栈不在回溯，这里不加>=是因为usertrap()的帧指针指向down位置     
+  {
+    uint64 ret_addr = *(uint64*)(fp - 8);   //得到函数的返回地址
+    printf("%p\n", ret_addr);
+    fp = *(uint64*)(fp - 16);       //得到旧的帧指针
+  }
+}

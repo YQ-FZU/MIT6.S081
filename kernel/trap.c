@@ -37,7 +37,6 @@ void
 usertrap(void)
 {
   int which_dev = 0;
-
   if((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
 
@@ -75,7 +74,19 @@ usertrap(void)
 
   if(p->killed)
     exit(-1);
-
+  //lab4
+  if (which_dev == 2 && p->alarm_inteval != 0 && p->in_hanlder == 0)
+  {
+    //如果是定时器中断，并且没在处理用户的中断服务程序，且alarm_inteval有效(！= 0，开启alarm)
+    p->cnt++;
+    //判断是否可以执行用户的中断服务程序
+    if (p->cnt == p->alarm_inteval)
+    {
+      memmove(p->alarm_trapframe, p->trapframe, sizeof(struct trapframe));  //暂存当前的陷阱帧
+      p->trapframe->epc = p->handler;   //让他不返回到触发警报前的现场，而是先返回到用户中断服务函数程序去，在用户那边再返回到触发警报前的现场
+      p->in_hanlder = 1; 
+    }
+  }
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
