@@ -67,7 +67,35 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } else if (r_scause() == 13 || r_scause() == 15)
+  {
+    //lab5,页错误
+    uint64 va = r_stval();   //读取未映射的虚拟地址
+    uint64 pa = 0;
+    //查看进程页表得知va的有效范围在(p->trapframe->sp < va < p->sz)
+    if (va >= p->sz || va < p->trapframe->sp)
+    {
+      p->killed = 1;
+    }
+    if (!p->killed && (pa = (uint64)kalloc()) != 0) //每次分配一页物理内存
+    {
+      //虚拟地址有效并且物理内存未耗尽
+      va = PGROUNDDOWN(va);   //页对齐
+      memset((void*)pa, 0, PGSIZE);
+    }
+    else{
+      p->killed = 1;
+    }
+    
+    if (!p->killed && mappages(p->pagetable, va, PGSIZE, pa,  PTE_U | PTE_R | PTE_W) != 0)
+    {
+      kfree((void*)pa);
+      p->killed = 1;
+    }
+    //sepc未加4，结束后返回原指令地点继续执行!!!
+  }
+  else
+  {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;

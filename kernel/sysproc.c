@@ -47,8 +47,20 @@ sys_sbrk(void)
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
+  if (n < 0)
+  {
+    //如果n<0说明要缩小进程的sz，这个时候要释放物理页
+    uvmdealloc(myproc()->pagetable, myproc()->sz, myproc()->sz + n);
+    myproc()->sz += n;
+  }
+  else
+  {
+    //如果n>0,我们先扩展进程的sz再通过页错误来分配物理内存和映射
+    myproc()->sz += n;
+  }
+  
+  //if(growproc(n) < 0)
+  //  return -1;
   return addr;
 }
 
