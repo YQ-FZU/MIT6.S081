@@ -30,7 +30,21 @@ barrier()
   // Block until all threads have called barrier() and
   // then increment bstate.round.
   //
-  
+  pthread_mutex_lock(&bstate.barrier_mutex);    //每个线程进来barrier都要先拿锁
+  ++bstate.nthread;                             //当前轮barrier线程数++
+  if (bstate.nthread != nthread)                //如果还要没有进来的线程
+  {
+    pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);     //等待，并且把锁释放
+  }
+  else
+  {
+    //最后一个线程来了
+    bstate.nthread = 0;                               //将线程数清零
+    ++bstate.round;                                   //barrier轮数++
+    pthread_cond_broadcast(&bstate.barrier_cond);     //广播唤醒所有等待的线程去拿锁
+  }
+  pthread_mutex_unlock(&bstate.barrier_mutex);        //最后一个线程释放锁
+
 }
 
 static void *
@@ -74,5 +88,6 @@ main(int argc, char *argv[])
   for(i = 0; i < nthread; i++) {
     assert(pthread_join(tha[i], &value) == 0);
   }
+  
   printf("OK; passed\n");
 }
