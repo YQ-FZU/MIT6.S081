@@ -10,7 +10,7 @@
 #include "defs.h"
 
 void freerange(void *pa_start, void *pa_end);
-
+void* get_free_page(int id);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
@@ -21,12 +21,17 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+} kmem[NCPU];   //lab8 为每一个cpu都申请一张链表和锁
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  //lab8 初始化每个cpu的锁
+  for (int i = 0; i < NCPU; i++)
+  {
+    initlock(&kmem[i].lock, "kmem");
+  }
+ 
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -55,11 +60,14 @@ kfree(void *pa)
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
-
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  //lab8
+  push_off();  //关中断
+  int id = cpuid();     //获取当前cpuid
+  acquire(&kmem[id].lock);
+  r->next = kmem[id].freelist;
+  kmem[id].freelist = r;
+  release(&kmem[id].lock);
+  pop_off();    //开中断
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -69,14 +77,53 @@ void *
 kalloc(void)
 {
   struct run *r;
-
-  acquire(&kmem.lock);
-  r = kmem.freelist;
-  if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
-
+  //lab8
+  push_off();   //关中断
+  int id = cpuid();
+  acquire(&kmem[id].lock);
+  r = kmem[id].freelist;
+  if (r)    
+  {
+    //如果cpu自身有内存
+    kmem[id].freelist = r->next;
+  }
+  else
+  {
+    r = (struct run*)get_free_page(id);     //返回空闲页物理地址
+    /*
+      if(r)
+    {
+      r->next = kmem[id].freelist;
+      kmem[id].freelist = r;
+    }
+    */
+  }
+  release(&kmem[id].lock);
+  pop_off();    //关中断，只有id使用完之后才能关闭中断
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+//lab8 寻找空闲页
+void* get_free_page(int id)
+{
+  for (int i = 0; i < NCPU; i++)
+  {
+    //遍历所有的cpu查看存在空闲页的cpu
+    if (i == id)
+    {
+      continue;   //防止死锁
+    }
+    acquire(&kmem[i].lock);
+    struct run* r = kmem[i].freelist;
+    if (r)    //如果有空闲内存
+    {
+      kmem[i].freelist = r->next;   //将该结点移除
+      release(&kmem[i].lock);
+      return (void*)r;
+    }
+    release(&kmem[i].lock);
+  }
+  //没有空闲内存
+  return 0;
 }

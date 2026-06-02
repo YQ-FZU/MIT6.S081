@@ -116,6 +116,7 @@ release(struct spinlock *lk)
   //   s1 = &lk->locked
   //   amoswap.w zero, zero, (s1)
   __sync_lock_release(&lk->locked);
+  
 
   pop_off();
 }
