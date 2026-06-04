@@ -389,8 +389,8 @@ bmap(struct inode *ip, uint bn)
 
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
-    if((addr = ip->addrs[NDIRECT]) == 0)
-      ip->addrs[NDIRECT] = addr = balloc(ip->dev);
+    if((addr = ip->addrs[NDIRECT]) == 0)      
+      ip->addrs[NDIRECT] = addr = balloc(ip->dev);    
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
     if((addr = a[bn]) == 0){
@@ -401,6 +401,38 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
 
+  //lab 9
+  bn -= NINDIRECT;
+  if (bn < DOUBLE_NINDIRECT)
+  {
+    if ((addr = ip->addrs[NDIRECT + 1]) == 0)   //如果没有分配双重间接块
+    {
+      ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev);    //分配一个块用作双重间接块 addr是块编号
+    }
+
+     //操作双重间接块
+    bp = bread(ip->dev, addr);      //读取双重间接块的映射缓冲块
+    a = (uint*)bp->data;
+    uint index = bn / NINDIRECT;    //用于索引双重间接块里的条目
+    if ((addr = a[index]) == 0)
+    {
+      a[index] = addr = balloc(ip->dev); //分配一个间接块
+      log_write(bp);    //将对双重间接块的修改提交到日志
+    }
+    brelse(bp);   //释放双重间接块缓冲
+
+    //操作双重间接块里块数组指向的间接块
+    bp = bread(ip->dev, addr);    //读取双重间接块指向的间接块的映射缓冲
+    a = (uint*)bp->data;
+    index = bn % NINDIRECT;
+    if((addr = a[index]) == 0){
+      a[index] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+
+    return addr;
+  }
   panic("bmap: out of range");
 }
 
@@ -412,14 +444,14 @@ itrunc(struct inode *ip)
   int i, j;
   struct buf *bp;
   uint *a;
-
+  //释放直接块
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
       bfree(ip->dev, ip->addrs[i]);
       ip->addrs[i] = 0;
     }
   }
-
+  //释放间接块
   if(ip->addrs[NDIRECT]){
     bp = bread(ip->dev, ip->addrs[NDIRECT]);
     a = (uint*)bp->data;
@@ -431,7 +463,30 @@ itrunc(struct inode *ip)
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
   }
-
+  //lab9 释放双重间接块
+  if (ip->addrs[NDIRECT + 1])
+  {
+    bp = bread(ip->dev, ip->addrs[NDIRECT + 1]);    //读取双重间接块映射缓冲
+    a = (uint*)bp->data;
+    for (i = 0; i < NINDIRECT; i++)   //遍历双重间接块
+    {
+      if (a[i])     //如果存在间接块
+      {
+        struct buf* bp1 = bread(ip->dev, a[i]);   //读取间接块映射缓冲
+        uint* a1 = (uint*)bp1->data;
+        for (j = 0; j < NINDIRECT; j++)   //释放间接块内数据块
+        {
+          if(a1[j])
+            bfree(ip->dev, a1[j]);
+        }
+        brelse(bp1);    //释放间接块映射缓冲块
+        bfree(ip->dev, a[i]);   //释放间接块本身
+      }
+    }
+    brelse(bp);   //释放算双重间接块映射缓冲块
+    bfree(ip->dev, ip->addrs[NDIRECT + 1]);     //释放双重间接块本身
+    ip->addrs[NDIRECT + 1] = 0;       //将inode里的双重间接块条目置零
+  }
   ip->size = 0;
   iupdate(ip);
 }

@@ -23,6 +23,8 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int symlink(char *, char *);        //lab9 新的系统调用，软连接
+
 
 // ulib.c
 int stat(const char*, struct stat*);

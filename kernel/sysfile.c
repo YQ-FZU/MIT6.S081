@@ -298,17 +298,57 @@ sys_open(void)
   begin_op();
 
   if(omode & O_CREATE){
+    //lab9 open应该不会创建符号链接文件，符号链接通过系统调用创建
     ip = create(path, T_FILE, 0, 0);
     if(ip == 0){
       end_op();
       return -1;
     }
   } else {
-    if((ip = namei(path)) == 0){
+    //不需要创建的情况
+    if((ip = namei(path)) == 0){  //获取目标文件所在的inode
       end_op();
       return -1;
     }
-    ilock(ip);
+    ilock(ip);  //锁定inode
+    //lab9
+    //需要处理软链接
+    if (!(omode & O_NOFOLLOW))    
+    {
+      int depth = 0;        //记录递归次数
+      char name[MAXPATH];   //用于存储链接里的目标文件名
+      //处理递归情况
+      //需要判断链接的是否是软链接才可竟然循环
+      while (ip->type == T_SYMLINK && depth < 10)
+      {
+        if (readi(ip, 0, (uint64)name, 0, MAXPATH) <= 0)   //这里虽然传入MAXPATH但是readi会返回实际读取到的字节数
+        {
+          iunlockput(ip); //这里需要应对creat，或者namei里的refcnt++，所以需要释放ref
+          end_op();
+          return -1;
+        }
+        iunlockput(ip);
+        //判断链接的文件是否存在
+        if((ip = namei(name)) == 0)
+        {  
+          //不存在
+          end_op();
+          return -1;
+        }
+        //存在
+        ilock(ip);    //给链接文件加锁
+        depth++;
+      }
+      //符号链接循环引用depth=10
+      if (depth >= 10)
+      {
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
+    }
+    //如果open的时候没有跟随O_NOFOLLOW，那么就跟普通文件一样
+
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
@@ -345,7 +385,7 @@ sys_open(void)
     itrunc(ip);
   }
 
-  iunlock(ip);
+  iunlock(ip);    //注意open返回的inode是不被锁定的，但是refcnt会++
   end_op();
 
   return fd;
@@ -482,5 +522,38 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+//lab9 系统调用创建符号链接 int symlink(char *target, char *path);
+//核心功能就是创建符号链接并把需要链接的文件写到符号链接的inode数据块里
+uint64 sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  struct inode* ip;
+  //获取用户空间传入的参数0和参数1
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+  {
+    return -1;
+  }
+  //开始日志事物
+  begin_op();
+  ip = create(path, T_SYMLINK, 0, 0);	    //创建一个符号链接文件,
+  if(ip == 0)
+  {
+    //inode为0出错
+    end_op();
+    return -1;
+  }
+  //将需要连接的目标文件名写入inode数据块
+  if (writei(ip, 0, (uint64)target, 0, strlen(target)) != strlen(target))
+  {
+    //写入不符合预期，失败
+    iunlockput(ip);     //释放create里的refcnt++
+    end_op();
+    return -1;
+  }
+  iunlockput(ip);
+  end_op();
   return 0;
 }
