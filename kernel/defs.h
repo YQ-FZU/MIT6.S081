@@ -8,6 +8,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct vam;         //lab10
 
 // bio.c
 void            binit(void);
@@ -171,7 +172,8 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
-
+int             unmap_write(struct vam*, uint64, uint);
+int             dirty_write(int port, uint64 va);
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);

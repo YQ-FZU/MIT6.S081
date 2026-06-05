@@ -5,7 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
-
+#include "proc.h"//lab10
+#include "fcntl.h"
 /*
  * the kernel's page table.
  */
@@ -428,4 +429,71 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+//lab10 unmap_write
+int unmap_write(struct vam* vam, uint64 addr, uint length)
+{
+  struct proc* p = myproc();
+  pte_t* pte;
+  uint64 a, write_size;
+  //遍历页表addr~addr+length的每一页，如果存在映射那么取消映射写回文件
+  for (a = addr; a < addr + length; a += PGSIZE)
+  {
+    if ((pte = walk(p->pagetable, a, 0)) == 0)
+    {
+      return -1;
+    }
+      
+    if ((*pte & PTE_V) == 0)
+    {
+      //没有映射
+      continue;
+    }
+    //取消映射写回文件，注意判断最后不足一页的情况
+    if (addr + length - a >= PGSIZE)
+    {
+      write_size = PGSIZE;
+    }
+    else {
+      write_size = addr + length - a;
+    }
+
+    if ((vam->flags & MAP_SHARED) && (*pte & PTE_D))    //如果vam被标记位MAP_SHARED，并且是脏页需要写回文件
+    {
+      if (filewrite(vam->file, a, write_size) < 0)
+      {
+        printf("err file_write\n");      //测试
+        return -1;
+      }
+    }
+    uvmunmap(p->pagetable, a, 1, 1);    //取消映射，并释放内存物理页
+  }
+  
+  return 0;
+}
+
+//lab 10 脏页
+int dirty_write(int port, uint64 va)
+{
+  struct proc* p = myproc();
+  pte_t* pte;
+  if ((pte = walk(p->pagetable, va, 0)) == 0)
+  {
+    return -1;
+  }
+
+  //第二种情况
+  if ((*pte & PTE_V) == 0 && (port & PROT_WRITE) != 0)     //写指令触发页错误，原因是由于未映射
+  {
+    return 2;
+  }
+
+  //第三种情况  写指令触发页错误，原因是权限不足
+  if (port & PROT_WRITE)
+  {
+    *pte |= (PTE_D | PTE_W);    //给写权限，标记脏页
+    return 3;
+  }
+  return -1;
 }

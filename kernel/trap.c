@@ -5,6 +5,8 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+//lab10
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -67,12 +69,104 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } 
+  else if(r_scause() == 12 || r_scause() == 13 || r_scause() == 15)
+  {
+    //lab10
+    uint64 va = r_stval();      //读取发生页错误的虚拟地址
+    uint64 pa = 0;
+    struct vam* vam = 0;
+    struct inode* ip;
+    int flags = 0;     //映射页权限
+    int i, ret = 0;
+
+    //找到va对应的vam
+    for (i = 0; i < NVAM; i++)
+    {
+      if (va >= p->vam[i].addr && va < p->vam[i].addr + p->vam[i].length) //注意边界左闭右开
+      {
+        vam = &p->vam[i];
+        break;
+      }
+    }
+    if (!vam)     
+    {
+      //没找到vam
+      printf("err vam\n");
+      p->killed = 1;
+      goto end;
+    }
+
+    //============处理脏页=========================
+    if (r_scause() == 12 || r_scause() == 13)   //如果是读取和执行指令触发的页错误，原因是页未映射
+    {
+      ret = 1;          //对应第一种情况
+    }
+    else
+    {
+      ret = dirty_write(vam->port, va);
+      if (ret == 2)
+      {
+        flags |= PTE_D;
+      }
+      else if (ret == 3)
+      {
+        //第三种情况是已经映射了，只需要给写权限并且标记为脏页就行，在dirty_write中处理不需要分配物理页
+        goto end;
+      }
+    }
+    //==============================================
+
+    //分配物理页
+    if ((pa = (uint64)kalloc()) != 0) 
+    {
+      //虚拟地址有效并且物理内存未耗尽  
+      va = PGROUNDDOWN(va);     //页对齐
+      memset((void*)pa, 0, PGSIZE);
+    }
+    else
+    {
+      p->killed = 1;
+      goto end;
+    }
+    
+    //把文件写入vam内存
+    ip = vam->file->ip;
+    ilock(ip);      //操作inode前需要加锁
+    
+    //一次最多读取一页文件数据到内存
+    //文件和虚拟内存还有物理内存都是页对齐的
+    //vam->offset对应vam->addr，va - vam->addr只可能是4096的整数倍
+    if (readi(ip, 0, pa, vam->offset + (va - vam->addr), PGSIZE) < 0)
+    {
+      kfree((char*)pa);
+      iunlock(ip);
+      p->killed = 1;
+      goto end;
+    }
+    iunlock(ip);
+
+    //物理内存映射到虚拟地址
+    flags = (PORT2PTE(vam->port) | PTE_U);    //设置映射页权限
+     //处理脏页
+    if (ret == 1)   //对应第一种情况，需要取消写标志位
+    {
+      flags &= (~PTE_W);
+    }
+
+    if (mappages(p->pagetable, va, PGSIZE, pa, flags) != 0)
+    {
+      kfree((char*)pa);
+      p->killed = 1;
+      goto end;
+    }
+    
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
-
+end:
   if(p->killed)
     exit(-1);
 

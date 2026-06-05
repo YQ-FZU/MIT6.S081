@@ -15,7 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
-
+#include "memlayout.h"
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -482,5 +482,176 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+//lab10 
+uint64 sys_mmap(void)
+{
+  uint64 addr = 0;    //用户空间传入地址
+  int length, flags, port, offset, fd;      //用于保存用户空间系统调用的传入参数
+  struct file* file;
+  int i, is_find = 0;         //is_find标记是否找到了合适的vam
+  struct vam* vam = 0;
+  struct proc* p = myproc();
+  //获取用户空间系统调用传入参数
+  if (argaddr(0, &addr) < 0 || argint(1, &length) < 0 || argint(2, &port) < 0 || argint(3, &flags) < 0 || argint(4, &fd) <0 || argint(5, &offset) < 0)
+  {
+    return -1;
+  }
+  file = p->ofile[fd];    //获取待映射文件的文件描述符
+  //安全检查
+  if (offset % PGSIZE)      //偏移必须是整数个页大小
+  {
+    return -1;
+  }
+
+  if (length <0)
+    return -1;
+  //不能将不可写文件映射为MAP_SHARED
+  if (file->writable == 0 && (flags & MAP_SHARED) && (port & PROT_WRITE))
+    return -1;
+
+  if (file->readable == 0 && (port & PROT_READ))    //必须全部可读
+  {
+    return -1;
+  }
+    
+  
+  //寻找空闲的vam块
+  for (i = 0; i < NVAM; i++)
+  {
+    if (p->vam[i].addr == 0)    //还没被使用过
+    {
+      vam = &p->vam[i];
+      break;
+    }
+  }
+  //没有找到空的vam
+  if (!vam)   
+    return -1;
+  
+  //如果addr = 0由内核自动分配内存映射文件，如果addr！=0则用用户指定的addr进行映射
+  if (addr != 0)     
+  {
+    vam->addr = addr;     //用户设置的addr
+    if (addr + length < TRAPFRAME)
+    {
+      is_find = 1;
+      for (i = 0; i < NVAM; i++)
+      {
+        //注意这里不能加等号，因为vam的区间是[addr,addr + length)左闭右开的
+        if (addr < p->vam[i].addr + p->vam[i].length && addr + length > p->vam[i].addr)
+        {
+          //与现存的映射块重叠了
+          is_find = 0;
+          break;
+        }
+      }
+    }
+    
+  }
+  else
+  {
+    //内核自己分配内存
+    //这里mmap规定offset必须是页大小的整数倍，我们给他映射的虚拟地址也是从页边界开始
+    addr = MMAPBASE;
+    while (addr + length < TRAPFRAME)
+    {
+      is_find = 1;
+      for (i = 0; i < NVAM; i++)
+      {
+        //注意这里不能加等号，因为vam的区间是[addr,addr + length)左闭右开的
+        if (addr < p->vam[i].addr + p->vam[i].length && addr + length > p->vam[i].addr)
+        {
+          //与现存的映射块重叠了
+          is_find = 0;
+          break;
+        }
+      }
+
+      if (is_find)    //如果当前的addr合适，那么break
+      {
+        break;
+      }
+      else{
+        addr += PGSIZE;     //保证虚拟地址从页边界开始映射
+      }
+    }
+  }
+  
+  if (is_find)    //如果找到了合适的映射空间
+  {
+    vam->addr = addr;
+    vam->flags = flags;
+    vam->length = length;
+    vam->offset = offset;
+    vam->port = port;
+    vam->file = file;
+
+    filedup(vam->file);   //增加fd的引用计数
+    
+    return addr;          //返回映射的虚拟地址
+  }
+  return -1;
+}
+
+uint64 sys_munmap(void)
+{
+  
+  uint64 addr;
+  int length;
+  struct vam* vam = 0;
+  struct proc* p;
+  int i;
+  //获取用户层系统调用传入参数
+  if (argaddr(0, &addr) < 0 || argint(1, &length) < 0)
+  {
+    return -1;
+  }
+  if (addr % PGSIZE)    //addr需要是页对齐的
+    return -1;
+  p = myproc();
+
+  //寻找addr对应的vam，注意区间左闭右开
+  for (i = 0; i < NVAM; i++)
+  {
+    if (addr >= p->vam[i].addr && addr < p->vam[i].addr + p->vam[i].length)
+    {
+      vam = &p->vam[i];
+      break;
+    }
+  }
+  if (!vam)     //没有找到出错
+    return -1;
+  if (length == 0)
+    return 0;
+  
+  if (unmap_write(vam, addr, length) < 0)     //取消[addr, addr + length)的映射，并写回文件
+    return -1;
+  
+  //根据取消映射区的情况来修改vam
+  if (addr == vam->addr && length == vam->length)
+  {
+    //vam 被全部unmap
+    fileclose(vam->file);
+    memset(vam, 0, sizeof(struct vam));
+  }
+  else if (addr == vam->addr)
+  {
+    //只取消了头部
+    vam->addr += length;
+    vam->length -= length;
+  }
+  else if (addr + length == vam->addr + vam->length)
+  {
+    //取消了尾部
+    vam->length -= length;
+  }
+  else {
+    //出错
+    return -1;
+  }
+  
   return 0;
 }

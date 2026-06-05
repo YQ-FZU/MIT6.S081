@@ -1,3 +1,4 @@
+#include "file.h"   //lab10
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -82,8 +83,18 @@ struct trapframe {
 
 enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+//lab10 vam内存映射块
+struct vam {
+  struct file* file;    //需要映射文件的文件描述符
+  uint length;          //需要映射的文件大小
+  uint64 addr;          //映射到用户空间的虚拟地址addr
+  int port;             //标记该被映射内存的读写权限
+  uint offset;          //映射从文件的offset位置开始(4096的整数倍)
+  int flags;            //标记对内存映射的修改是否需要同步到文件
+};
 // Per-process state
 struct proc {
+  struct vam vam[NVAM];   //lab10
   struct spinlock lock;
 
   // p->lock must be held when using these:

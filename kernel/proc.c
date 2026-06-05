@@ -5,7 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
-
+#include "file.h"   //lab10
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -280,6 +280,18 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+
+  //lab10 拷贝父进程的vam
+  //只需要拷贝vam，不需要拷贝页表这部分的映射，等到时候发生页错误自己映射
+  for (int i = 0; i < NVAM; i++)
+  {
+    if (p->vam[i].addr)
+    {
+      np->vam[i] = p->vam[i];
+      filedup(p->vam[i].file);
+    }
+  }
+
   np->sz = p->sz;
 
   np->parent = p;
@@ -340,7 +352,7 @@ void
 exit(int status)
 {
   struct proc *p = myproc();
-
+  
   if(p == initproc)
     panic("init exiting");
 
@@ -350,6 +362,17 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+
+  //lab10 解除当前进程所有映射
+  for (int i = 0; i < NVAM; i++)
+  {
+    if (p->vam[i].addr != 0)
+    {
+      unmap_write(&p->vam[i], p->vam[i].addr, p->vam[i].length);    //取消映射
+      fileclose(p->vam[i].file);    //释放文件描述符
+      memset(&p->vam[i], 0, sizeof(struct vam));
     }
   }
 
